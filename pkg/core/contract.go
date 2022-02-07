@@ -35,5 +35,5 @@ func (c *Contract) UnmarshalJSON(data []byte) error {
 
 func (c Contract) Match(addr string) bool {
 	r := strings.ReplaceAll(c.Account, "*", ".*")
-	return regexp.MustCompile(r).Match([]byte(addr))
+	return regexp.MustCompile("^" + r).Match([]byte(addr))
 }
