@@ -70,6 +70,10 @@ func BenchmarkStore(b *testing.B) {
 				name: "AggregateVolumes",
 				fn:   testBenchmarkAggregateVolumes,
 			},
+			{
+				name: "SaveTransactions",
+				fn:   testBenchmarkSaveTransactions,
+			},
 		} {
 			b.Run(fmt.Sprintf("%s/%s", driver.driver, tf.name), func(b *testing.B) {
 				ledger := uuid.New()
@@ -226,4 +230,25 @@ func testBenchmarkAggregateVolumes(b *testing.B, store *sqlstorage.Store) {
 		assert.NoError(b, err)
 	}
 
+}
+
+func testBenchmarkSaveTransactions(b *testing.B, store *Store) {
+	for n := 0; n < b.N; n++ {
+		_, err := store.SaveTransactions(context.Background(), []core.Transaction{
+			{
+				TransactionData: core.TransactionData{
+					Postings: []core.Posting{
+						{
+							Source:      "world",
+							Destination: fmt.Sprintf("player%d", n),
+							Asset:       "USD",
+							Amount:      100,
+						},
+					},
+				},
+				ID: int64(n),
+			},
+		})
+		assert.NoError(b, err)
+	}
 }
