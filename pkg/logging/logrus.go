@@ -24,7 +24,7 @@ func (l *logrusLogger) WithFields(fields map[string]interface{}) Logger {
 
 func NewLogrusLogger() *logrusLogger {
 	return &logrusLogger{
-		Entry: logrus.NewEntry(logrus.New()),
+		Entry: logrus.NewEntry(logrus.StandardLogger()),
 	}
 }
 

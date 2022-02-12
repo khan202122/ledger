@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/numary/ledger/pkg/ledger/query"
+	"github.com/stretchr/testify/assert"
 	"testing"
 
 	"github.com/numary/ledger/pkg/core"
@@ -88,7 +90,6 @@ func TestSend(t *testing.T) {
 		}
 
 		_, err := l.Execute(context.Background(), script)
-
 		if err != nil {
 			t.Error(err)
 			return
@@ -270,39 +271,48 @@ func TestMissingMetadata(t *testing.T) {
 
 func TestMetadata(t *testing.T) {
 	with(func(l *Ledger) {
-		defer l.Close(context.Background())
 
-		tx := core.TransactionData{
-			Postings: []core.Posting{
-				{
-					Source:      "world",
-					Destination: "sales:042",
-					Amount:      100,
-					Asset:       "COIN",
+		_, _, err := l.Commit(context.Background(), []core.TransactionData{
+			{
+				Postings: []core.Posting{
+					{
+						Source:      "world",
+						Destination: "sales:042",
+						Amount:      100,
+						Asset:       "COIN",
+					},
 				},
 			},
-		}
+		})
+		assert.NoError(t, err)
 
-		_, _, err := l.Commit(context.Background(), []core.TransactionData{tx})
-
-		l.SaveMeta(context.Background(), "account", "sales:042", core.Metadata{
+		assert.NoError(t, l.SaveMeta(context.Background(), "account", "sales:042", core.Metadata{
 			"seller": json.RawMessage(`{
 				"type":  "account",
 				"value": "users:053"
 			}`),
-		})
+		}))
 
-		l.SaveMeta(context.Background(), "account", "users:053", core.Metadata{
+		assert.NoError(t, l.SaveMeta(context.Background(), "account", "users:053", core.Metadata{
 			"commission": json.RawMessage(`{
 				"type":  "portion",
 				"value": "15.5%"
 			}`),
-		})
+		}))
 
-		if err != nil {
-			t.Error(err)
-			return
-		}
+		_, err = l.store.FindAccounts(context.Background(), query.Query{})
+		assert.NoError(t, err)
+
+		_, err = l.store.LastLog(context.Background())
+		assert.NoError(t, err)
+
+		account, err := l.GetAccount(context.Background(), "sales:042")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, account.Metadata)
+
+		account, err = l.GetAccount(context.Background(), "users:053")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, account.Metadata)
 
 		plain := `
 			vars {
@@ -319,9 +329,6 @@ func TestMetadata(t *testing.T) {
 				}
 			)
 		`
-		if err != nil {
-			t.Fatalf("did not expect error: %v", err)
-		}
 
 		script := core.Script{
 			Plain: plain,
@@ -331,15 +338,12 @@ func TestMetadata(t *testing.T) {
 		}
 
 		_, err = l.Execute(context.Background(), script)
-
 		if err != nil {
 			t.Fatalf("execution error: %v", err)
 		}
 
 		assertBalance(t, l, "sales:042", "COIN", 0)
-
 		assertBalance(t, l, "users:053", "COIN", 85)
-
 		assertBalance(t, l, "platform", "COIN", 15)
 	})
 }
@@ -368,19 +372,12 @@ func TestSetTxMeta(t *testing.T) {
 			},
 		}
 
-		_, err := l.Execute(context.Background(), script)
-
+		tx, err := l.Execute(context.Background(), script)
 		if err != nil {
 			t.Fatalf("execution error: %v", err)
 		}
 
 		assertBalance(t, l, "user:042", "COIN", 10)
-
-		tx, err := l.GetLastTransaction(context.Background())
-
-		if err != nil {
-			t.Fatalf("could not get last transaction: %v", err)
-		}
 
 		value, err := machine.NewValueFromTypedJSON(tx.Metadata["test_meta"])
 

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // Transactions struct
@@ -19,9 +20,8 @@ type TransactionData struct {
 
 type Transaction struct {
 	TransactionData
-	ID        int64  `json:"txid"`
-	Timestamp string `json:"timestamp"`
-	Hash      string `json:"hash" swaggerignore:"true"`
+	ID        string    `json:"txid"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 func (t *Transaction) AppendPosting(p Posting) {
@@ -41,7 +41,7 @@ func (t *Transaction) Reverse() TransactionData {
 	return ret
 }
 
-func Hash(t1 *Transaction, t2 *Transaction) string {
+func Hash(t1 *Log, t2 *Log) string {
 	b1, _ := json.Marshal(t1)
 	b2, _ := json.Marshal(t2)
 

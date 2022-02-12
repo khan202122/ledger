@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/numary/ledger/pkg/core"
 	machine "github.com/numary/machine/core"
 	"github.com/numary/machine/script/compiler"

@@ -1,19 +1,13 @@
 package controllers_test
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"github.com/numary/ledger/pkg/api"
 	"github.com/numary/ledger/pkg/api/controllers"
 	"github.com/numary/ledger/pkg/api/internal"
 	"github.com/numary/ledger/pkg/core"
-	"github.com/numary/ledger/pkg/ledgertesting"
-	"github.com/numary/ledger/pkg/storage"
-	"github.com/numary/ledger/pkg/storage/sqlstorage"
 	"github.com/stretchr/testify/assert"
 	"net/http"
-	"os"
 	"testing"
 )
 
@@ -177,8 +171,10 @@ func TestGetTransaction(t *testing.T) {
 			Reference: "ref",
 		})
 		assert.Equal(t, http.StatusOK, rsp.Result().StatusCode)
+		tx := make([]core.Transaction, 0)
+		internal.DecodeSingleResponse(t, rsp.Body, &tx)
 
-		rsp = internal.GetTransaction(api, 0)
+		rsp = internal.GetTransaction(api, tx[0].ID)
 		assert.Equal(t, http.StatusOK, rsp.Result().StatusCode)
 
 		ret := core.Transaction{}
@@ -192,17 +188,16 @@ func TestGetTransaction(t *testing.T) {
 				Asset:       "USD",
 			},
 		})
-		assert.EqualValues(t, 0, ret.ID)
+		assert.EqualValues(t, tx[0].ID, ret.ID)
 		assert.EqualValues(t, core.Metadata{}, ret.Metadata)
 		assert.EqualValues(t, "ref", ret.Reference)
-		assert.NotEmpty(t, ret.Hash)
 		assert.NotEmpty(t, ret.Timestamp)
 	})
 }
 
 func TestNotFoundTransaction(t *testing.T) {
 	internal.RunTest(t, func(api *api.API) {
-		rsp := internal.GetTransaction(api, 0)
+		rsp := internal.GetTransaction(api, "test")
 		assert.Equal(t, http.StatusNotFound, rsp.Result().StatusCode)
 	})
 }
@@ -268,7 +263,7 @@ func TestPostTransactionMetadata(t *testing.T) {
 		})
 		assert.Equal(t, http.StatusNoContent, rsp.Result().StatusCode)
 
-		rsp = internal.GetTransaction(api, 0)
+		rsp = internal.GetTransaction(api, tx[0].ID)
 		assert.Equal(t, http.StatusOK, rsp.Result().StatusCode)
 
 		ret := core.Transaction{}
@@ -277,30 +272,5 @@ func TestPostTransactionMetadata(t *testing.T) {
 		assert.EqualValues(t, core.Metadata{
 			"foo": json.RawMessage(`"bar"`),
 		}, ret.Metadata)
-	})
-}
-
-func TestTooManyClient(t *testing.T) {
-	internal.RunTest(t, func(api *api.API, factory storage.Factory) {
-
-		if ledgertesting.StorageDriverName() != "postgres" {
-			return
-		}
-		if os.Getenv("NUMARY_STORAGE_POSTGRES_CONN_STRING") != "" { // Use of external server, ignore this test
-			return
-		}
-
-		store, err := factory.GetStore("quickstart")
-		assert.NoError(t, err)
-
-		// Grab all potential connections
-		for i := 0; i < ledgertesting.MaxConnections; i++ {
-			tx, err := store.(*sqlstorage.Store).DB().BeginTx(context.Background(), &sql.TxOptions{})
-			assert.NoError(t, err)
-			defer tx.Rollback()
-		}
-
-		rsp := internal.GetTransactions(api)
-		assert.Equal(t, http.StatusServiceUnavailable, rsp.Result().StatusCode)
 	})
 }

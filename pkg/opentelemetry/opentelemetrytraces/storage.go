@@ -38,31 +38,20 @@ func (o *openTelemetryStorage) handle(ctx context.Context, name string, fn func(
 	return err
 }
 
-func (o *openTelemetryStorage) LastTransaction(ctx context.Context) (tx *core.Transaction, err error) {
-	o.handle(ctx, "LastTransaction", func(ctx context.Context) error {
-		tx, err = o.underlying.LastTransaction(ctx)
+func (o *openTelemetryStorage) AppendLog(ctx context.Context, logs ...core.Log) (ret map[int]error, err error) {
+	o.handle(ctx, "AppendLog", func(ctx context.Context) error {
+		ret, err = o.underlying.AppendLog(ctx, logs...)
 		return err
 	})
 	return
 }
 
-func (o *openTelemetryStorage) LastMetaID(ctx context.Context) (count int64, err error) {
-	o.handle(ctx, "LastMetaID", func(ctx context.Context) error {
-		count, err = o.underlying.LastMetaID(ctx)
+func (o *openTelemetryStorage) LastLog(ctx context.Context) (l *core.Log, err error) {
+	o.handle(ctx, "LastLog", func(ctx context.Context) error {
+		l, err = o.underlying.LastLog(ctx)
 		return err
 	})
 	return
-}
-
-func (o *openTelemetryStorage) SaveTransactions(ctx context.Context, transactions []core.Transaction) (ret map[int]error, err error) {
-	err = o.handle(ctx, "SaveTransactions", func(ctx context.Context) error {
-		ret, err = o.underlying.SaveTransactions(ctx, transactions)
-		return err
-	})
-	if err != nil {
-		return ret, err
-	}
-	return ret, nil
 }
 
 func (o *openTelemetryStorage) CountTransactions(ctx context.Context) (count int64, err error) {
@@ -84,6 +73,14 @@ func (o *openTelemetryStorage) FindTransactions(ctx context.Context, query query
 func (o *openTelemetryStorage) GetTransaction(ctx context.Context, s string) (tx core.Transaction, err error) {
 	o.handle(ctx, "GetTransaction", func(ctx context.Context) error {
 		tx, err = o.underlying.GetTransaction(ctx, s)
+		return err
+	})
+	return
+}
+
+func (o *openTelemetryStorage) GetAccount(ctx context.Context, s string) (tx core.Account, err error) {
+	o.handle(ctx, "GetAccount", func(ctx context.Context) error {
+		tx, err = o.underlying.GetAccount(ctx, s)
 		return err
 	})
 	return
@@ -116,28 +113,6 @@ func (o *openTelemetryStorage) CountAccounts(ctx context.Context) (count int64, 
 func (o *openTelemetryStorage) FindAccounts(ctx context.Context, query query.Query) (q query.Cursor, err error) {
 	o.handle(ctx, "FindAccounts", func(ctx context.Context) error {
 		q, err = o.underlying.FindAccounts(ctx, query)
-		return err
-	})
-	return
-}
-
-func (o *openTelemetryStorage) SaveMeta(ctx context.Context, i int64, s string, s2 string, s3 string, s4 string, s5 string) error {
-	return o.handle(ctx, "SaveMeta", func(ctx context.Context) error {
-		return o.underlying.SaveMeta(ctx, i, s, s2, s3, s4, s5)
-	})
-}
-
-func (o *openTelemetryStorage) GetMeta(ctx context.Context, s string, s2 string) (m core.Metadata, err error) {
-	o.handle(ctx, "GetMeta", func(ctx context.Context) error {
-		m, err = o.underlying.GetMeta(ctx, s, s2)
-		return err
-	})
-	return
-}
-
-func (o *openTelemetryStorage) CountMeta(ctx context.Context) (count int64, err error) {
-	o.handle(ctx, "CountMeta", func(ctx context.Context) error {
-		count, err = o.underlying.CountMeta(ctx)
 		return err
 	})
 	return

@@ -1,6 +1,10 @@
 package core
 
-import "regexp"
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"regexp"
+)
 
 type Posting struct {
 	Source      string `json:"source"`
@@ -11,16 +15,37 @@ type Posting struct {
 
 type Postings []Posting
 
-func (ps Postings) Reverse() {
-	if len(ps) == 1 {
-		ps[0].Source, ps[0].Destination = ps[0].Destination, ps[0].Source
+func (p Postings) Reverse() {
+	if len(p) == 1 {
+		p[0].Source, p[0].Destination = p[0].Destination, p[0].Source
 		return
 	}
-	for i := len(ps)/2 - 1; i >= 0; i-- {
-		opp := len(ps) - 1 - i
-		ps[i], ps[opp] = ps[opp], ps[i]
-		ps[i].Source, ps[i].Destination = ps[i].Destination, ps[i].Source
-		ps[opp].Source, ps[opp].Destination = ps[opp].Destination, ps[opp].Source
+	for i := len(p)/2 - 1; i >= 0; i-- {
+		opp := len(p) - 1 - i
+		p[i], p[opp] = p[opp], p[i]
+		p[i].Source, p[i].Destination = p[i].Destination, p[i].Source
+		p[opp].Source, p[opp].Destination = p[opp].Destination, p[opp].Source
+	}
+}
+
+// Scan - Implement the database/sql scanner interface
+func (p *Postings) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	v, err := driver.String.ConvertValue(value)
+	if err != nil {
+		return err
+	}
+
+	*p = Postings{}
+	switch vv := v.(type) {
+	case []uint8:
+		return json.Unmarshal(vv, p)
+	case string:
+		return json.Unmarshal([]byte(vv), p)
+	default:
+		panic("not supported type")
 	}
 }
 

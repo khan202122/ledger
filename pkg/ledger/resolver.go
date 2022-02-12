@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/numary/ledger/pkg/logging"
 	"github.com/numary/ledger/pkg/storage"
-	"github.com/numary/ledger/pkg/storage/sqlstorage"
 	"github.com/pkg/errors"
 	"go.uber.org/fx"
 	"sync"
@@ -41,7 +40,6 @@ func WithLogger(logger logging.Logger) ResolveOptionFn {
 }
 
 var DefaultResolverOptions = []ResolverOption{
-	WithStorageFactory(storage.NewDefaultFactory(sqlstorage.NewInMemorySQLiteDriver(logging.DefaultLogger()))),
 	WithLocker(NewInMemoryLocker()),
 	WithLogger(logging.DefaultLogger()),
 }

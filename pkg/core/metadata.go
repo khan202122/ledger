@@ -1,6 +1,7 @@
 package core
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 )
@@ -14,4 +15,29 @@ func (m Metadata) MarkRevertedBy(txID string) {
 
 func (m Metadata) IsReverted() bool {
 	return string(m["state"]) == "\"reverted\""
+}
+
+// Scan - Implement the database/sql scanner interface
+func (m *Metadata) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	v, err := driver.String.ConvertValue(value)
+	if err != nil {
+		return err
+	}
+
+	*m = Metadata{}
+	switch vv := v.(type) {
+	case []uint8:
+		return json.Unmarshal(vv, m)
+	case string:
+		return json.Unmarshal([]byte(vv), m)
+	default:
+		panic("not handled type")
+	}
+}
+
+func (m Metadata) ConvertValue(v interface{}) (driver.Value, error) {
+	return json.Marshal(v)
 }

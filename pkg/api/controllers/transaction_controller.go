@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"github.com/davecgh/go-spew/spew"
 	"github.com/gin-gonic/gin"
 	"github.com/numary/ledger/pkg/core"
 	"github.com/numary/ledger/pkg/ledger"
@@ -45,6 +46,7 @@ func (ctl *TransactionController) PostTransaction(c *gin.Context) {
 
 	_, result, err := l.(*ledger.Ledger).Commit(c.Request.Context(), []core.TransactionData{t})
 	if err != nil {
+		spew.Dump(err)
 		switch err {
 		case ledger.ErrCommitError:
 			tx := result[0]
@@ -73,7 +75,7 @@ func (ctl *TransactionController) GetTransaction(c *gin.Context) {
 
 func (ctl *TransactionController) RevertTransaction(c *gin.Context) {
 	l, _ := c.Get("ledger")
-	err := l.(*ledger.Ledger).RevertTransaction(c.Request.Context(), c.Param("txid"))
+	_, err := l.(*ledger.Ledger).RevertTransaction(c.Request.Context(), c.Param("txid"))
 	if err != nil {
 		ResponseError(c, err)
 		return

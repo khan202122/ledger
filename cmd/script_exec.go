@@ -60,7 +60,7 @@ func NewScriptExec() *cobra.Command {
 			}
 
 			fmt.Println("Script ran successfully ✅")
-			fmt.Printf("Created transaction: http://%s/%s/transactions/%d\r\n",
+			fmt.Printf("Created transaction: http://%s/%s/transactions/%s\r\n",
 				viper.Get(serverHttpBindAddressFlag),
 				args[0],
 				result.Transaction.ID,

@@ -11,7 +11,7 @@ import (
 // We have only one mapping for a ledger, so hardcode the id
 const mappingId = "0000"
 
-func (s *Store) loadMapping(ctx context.Context, exec executor) (*core.Mapping, error) {
+func (s *Store) LoadMapping(ctx context.Context) (*core.Mapping, error) {
 
 	sb := sqlbuilder.NewSelectBuilder()
 	sb.
@@ -20,14 +20,15 @@ func (s *Store) loadMapping(ctx context.Context, exec executor) (*core.Mapping, 
 
 	sqlq, args := sb.BuildWithFlavor(s.flavor)
 
-	rows, err := exec.QueryContext(ctx, sqlq, args...)
+	rows, err := s.db.QueryContext(
+		ctx,
+		sqlq,
+		args...,
+	)
 	if err != nil {
 		return nil, s.error(err)
 	}
 	if !rows.Next() {
-		if rows.Err() != nil {
-			return nil, s.error(rows.Err())
-		}
 		return nil, nil
 	}
 
@@ -49,11 +50,11 @@ func (s *Store) loadMapping(ctx context.Context, exec executor) (*core.Mapping, 
 	return m, nil
 }
 
-func (s *Store) LoadMapping(ctx context.Context) (*core.Mapping, error) {
-	return s.loadMapping(ctx, s.db)
-}
-
-func (s *Store) saveMapping(ctx context.Context, exec executor, mapping core.Mapping) error {
+func (s *Store) SaveMapping(ctx context.Context, mapping core.Mapping) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return s.error(err)
+	}
 
 	data, err := json.Marshal(mapping)
 	if err != nil {
@@ -69,21 +70,22 @@ func (s *Store) saveMapping(ctx context.Context, exec executor, mapping core.Map
 		sqlq string
 		args []interface{}
 	)
+	sqlq, args = ib.BuildWithFlavor(s.flavor)
 	switch s.flavor {
-	case sqlbuilder.Flavor(PostgreSQL):
-		sqlq, args = ib.BuildWithFlavor(s.flavor)
+	case sqlbuilder.SQLite:
+		sqlq += " ON CONFLICT (mapping_id) DO UPDATE SET mapping = ?"
+		args = append(args, string(data))
+	case sqlbuilder.PostgreSQL:
 		sqlq += " ON CONFLICT (mapping_id) DO UPDATE SET mapping = $2"
-	default:
-		ib.ReplaceInto(s.table("mapping"))
-		sqlq, args = ib.BuildWithFlavor(s.flavor)
 	}
 
 	logrus.Debugln(sqlq, args)
 
-	_, err = exec.ExecContext(ctx, sqlq, args...)
-	return s.error(err)
-}
+	_, err = tx.ExecContext(ctx, sqlq, args...)
+	if err != nil {
+		tx.Rollback()
 
-func (s *Store) SaveMapping(ctx context.Context, mapping core.Mapping) error {
-	return s.saveMapping(ctx, s.db, mapping)
+		return s.error(err)
+	}
+	return tx.Commit()
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/numary/ledger/pkg/ledgertesting"
 	"github.com/numary/ledger/pkg/logging"
 	"github.com/numary/ledger/pkg/storage"
+	"github.com/pborman/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"math/rand"
@@ -36,7 +37,7 @@ func with(f func(l *Ledger)) {
 					defer func() {
 						close(done)
 					}()
-					store, err := storageFactory.GetStore("test")
+					store, err := storageFactory.GetStore(uuid.New())
 					if err != nil {
 						return err
 					}
@@ -345,25 +346,13 @@ func TestReference(t *testing.T) {
 		}
 
 		_, _, err := l.Commit(context.Background(), []core.TransactionData{tx})
-
 		if err != nil {
 			t.Error(err)
 		}
 
 		_, _, err = l.Commit(context.Background(), []core.TransactionData{tx})
-
 		if err == nil {
 			t.Fail()
-		}
-	})
-}
-
-func TestLast(t *testing.T) {
-	with(func(l *Ledger) {
-		_, err := l.GetLastTransaction(context.Background())
-
-		if err != nil {
-			t.Error(err)
 		}
 	})
 }
@@ -371,7 +360,21 @@ func TestLast(t *testing.T) {
 func TestAccountMetadata(t *testing.T) {
 	with(func(l *Ledger) {
 
-		err := l.SaveMeta(context.Background(), "account", "users:001", core.Metadata{
+		_, _, err := l.Commit(context.Background(), []core.TransactionData{
+			{
+				Postings: []core.Posting{
+					{
+						Source:      "world",
+						Destination: "bank",
+						Amount:      100,
+						Asset:       "USD",
+					},
+				},
+			},
+		})
+		assert.NoError(t, err)
+
+		err = l.SaveMeta(context.Background(), "account", "users:001", core.Metadata{
 			"a random metadata": json.RawMessage(`"old value"`),
 		})
 		assert.NoError(t, err)
@@ -441,7 +444,7 @@ func TestAccountMetadata(t *testing.T) {
 
 func TestTransactionMetadata(t *testing.T) {
 	with(func(l *Ledger) {
-		l.Commit(context.Background(), []core.TransactionData{{
+		_, ret, err := l.Commit(context.Background(), []core.TransactionData{{
 			Postings: []core.Posting{
 				{
 					Source:      "world",
@@ -451,20 +454,18 @@ func TestTransactionMetadata(t *testing.T) {
 				},
 			},
 		}})
+		assert.NoError(t, err)
 
-		tx, err := l.GetLastTransaction(context.Background())
-		if err != nil {
-			t.Error(err)
-		}
-
-		l.SaveMeta(context.Background(), "transaction", fmt.Sprintf("%d", tx.ID), core.Metadata{
+		err = l.SaveMeta(context.Background(), "transaction", ret[0].ID, core.Metadata{
 			"a random metadata": json.RawMessage(`"old value"`),
 		})
-		l.SaveMeta(context.Background(), "transaction", fmt.Sprintf("%d", tx.ID), core.Metadata{
+		assert.NoError(t, err)
+		err = l.SaveMeta(context.Background(), "transaction", ret[0].ID, core.Metadata{
 			"a random metadata": json.RawMessage(`"new value"`),
 		})
+		assert.NoError(t, err)
 
-		tx, err = l.GetLastTransaction(context.Background())
+		tx, err := l.GetTransaction(context.Background(), ret[0].ID)
 		if err != nil {
 			t.Error(err)
 		}
@@ -485,7 +486,7 @@ func TestTransactionMetadata(t *testing.T) {
 func TestSaveTransactionMetadata(t *testing.T) {
 	with(func(l *Ledger) {
 
-		l.Commit(context.Background(), []core.TransactionData{{
+		_, ret, err := l.Commit(context.Background(), []core.TransactionData{{
 			Postings: []core.Posting{
 				{
 					Source:      "world",
@@ -498,13 +499,9 @@ func TestSaveTransactionMetadata(t *testing.T) {
 				"a metadata": json.RawMessage(`"a value"`),
 			},
 		}})
+		assert.NoError(t, err)
 
-		tx, err := l.GetLastTransaction(context.Background())
-		if err != nil {
-			t.Error(err)
-		}
-
-		if meta, ok := tx.Metadata["a metadata"]; ok {
+		if meta, ok := ret[0].Metadata["a metadata"]; ok {
 			var value string
 			err := json.Unmarshal(meta, &value)
 			if err != nil {
@@ -519,7 +516,7 @@ func TestSaveTransactionMetadata(t *testing.T) {
 
 func TestGetTransaction(t *testing.T) {
 	with(func(l *Ledger) {
-		l.Commit(context.Background(), []core.TransactionData{{
+		_, ret, err := l.Commit(context.Background(), []core.TransactionData{{
 			Reference: "bar",
 			Postings: []core.Posting{
 				{
@@ -529,21 +526,17 @@ func TestGetTransaction(t *testing.T) {
 					Asset:       "COIN",
 				},
 			},
+			Metadata: core.Metadata{},
 		}})
+		assert.NoError(t, err)
 
-		last, err := l.GetLastTransaction(context.Background())
-		if err != nil {
-			t.Error(err)
-		}
-
-		tx, err := l.GetTransaction(context.Background(), fmt.Sprint(last.ID))
+		last, err := l.GetTransaction(context.Background(), ret[0].ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-
-		if !reflect.DeepEqual(tx, last) {
-			t.Fail()
-		}
+		ret[0].Timestamp = ret[0].Timestamp.Round(time.Second)
+		last.Timestamp = last.Timestamp.Round(time.Second)
+		assert.EqualValues(t, ret[0].Transaction, last)
 	})
 }
 
@@ -602,15 +595,8 @@ func TestRevertTransaction(t *testing.T) {
 		}
 		originalBal := world.Balances["COIN"]
 
-		err = l.RevertTransaction(context.Background(), fmt.Sprint(txs[0].ID))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		revertTx, err := l.GetLastTransaction(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
+		revertTx, err := l.RevertTransaction(context.Background(), fmt.Sprint(txs[0].ID))
+		assert.NoError(t, err)
 
 		expectedPosting := core.Posting{
 			Source:      "payments:001",
@@ -652,7 +638,8 @@ func BenchmarkTransaction1(b *testing.B) {
 				},
 			})
 
-			l.Commit(context.Background(), txs)
+			_, _, err := l.Commit(context.Background(), txs)
+			assert.NoError(b, err)
 		}
 	})
 }
@@ -676,7 +663,8 @@ func BenchmarkTransaction_20_1k(b *testing.B) {
 					})
 				}
 
-				l.Commit(context.Background(), txs)
+				_, _, err := l.Commit(context.Background(), txs)
+				assert.NoError(b, err)
 			}
 		}
 	})

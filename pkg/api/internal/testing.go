@@ -2,6 +2,7 @@ package internal
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/numary/ledger/pkg/api"
@@ -13,6 +14,7 @@ import (
 	"github.com/numary/ledger/pkg/logging"
 	"github.com/numary/ledger/pkg/storage"
 	"github.com/pborman/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/fx"
 	"io"
@@ -86,8 +88,8 @@ func PostTransaction(t *testing.T, handler http.Handler, tx core.TransactionData
 	return rec
 }
 
-func PostTransactionMetadata(t *testing.T, handler http.Handler, id int64, m core.Metadata) *httptest.ResponseRecorder {
-	req, rec := NewRequest(http.MethodPost, fmt.Sprintf("/"+testingLedger+"/transactions/%d/metadata", id), Buffer(t, m))
+func PostTransactionMetadata(t *testing.T, handler http.Handler, id string, m core.Metadata) *httptest.ResponseRecorder {
+	req, rec := NewRequest(http.MethodPost, fmt.Sprintf("/"+testingLedger+"/transactions/%s/metadata", id), Buffer(t, m))
 	handler.ServeHTTP(rec, req)
 	return rec
 }
@@ -98,8 +100,8 @@ func GetTransactions(handler http.Handler) *httptest.ResponseRecorder {
 	return rec
 }
 
-func GetTransaction(handler http.Handler, id int64) *httptest.ResponseRecorder {
-	req, rec := NewRequest(http.MethodGet, fmt.Sprintf("/"+testingLedger+"/transactions/%d", id), nil)
+func GetTransaction(handler http.Handler, id string) *httptest.ResponseRecorder {
+	req, rec := NewRequest(http.MethodGet, fmt.Sprintf("/"+testingLedger+"/transactions/%s", id), nil)
 	handler.ServeHTTP(rec, req)
 	return rec
 }
@@ -147,6 +149,11 @@ func GetInfo(handler http.Handler) *httptest.ResponseRecorder {
 }
 
 func WithNewModule(t *testing.T, options ...fx.Option) {
+
+	if testing.Verbose() {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
+
 	testingLedger = uuid.New()
 	module := api.Module(api.Config{
 		StorageDriver: "sqlite",
@@ -171,6 +178,7 @@ func WithNewModule(t *testing.T, options ...fx.Option) {
 	}))
 
 	app := fx.New(options...)
+	assert.NoError(t, app.Start(context.Background()))
 
 	select {
 	case <-ch:
@@ -179,12 +187,19 @@ func WithNewModule(t *testing.T, options ...fx.Option) {
 	}
 }
 
-func RunSubTest(t *testing.T, name string, fn interface{}) {
+func RunSubTest(t *testing.T, name string, fn func(h *api.API)) {
 	t.Run(name, func(t *testing.T) {
 		RunTest(t, fn)
 	})
 }
 
-func RunTest(t *testing.T, fn interface{}) {
-	WithNewModule(t, fx.Invoke(fn))
+func RunTest(t *testing.T, fn func(h *api.API)) {
+	WithNewModule(t, fx.Invoke(func(lc fx.Lifecycle, h *api.API) {
+		lc.Append(fx.Hook{
+			OnStart: func(ctx context.Context) error {
+				fn(h)
+				return nil
+			},
+		})
+	}))
 }

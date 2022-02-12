@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,7 @@ import (
 	"github.com/numary/ledger/pkg/ledgertesting"
 	"github.com/numary/ledger/pkg/logging"
 	"github.com/numary/ledger/pkg/storage"
+	"github.com/pborman/uuid"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/fx"
@@ -20,7 +22,7 @@ import (
 	"testing"
 )
 
-func withNewModule(t *testing.T, options ...fx.Option) {
+func withNewModule(t *testing.T, fn func(h *API), options ...fx.Option) {
 	module := Module(Config{
 		StorageDriver: viper.GetString("sqlite"),
 		LedgerLister: controllers.LedgerListerFn(func(r *http.Request) []string {
@@ -36,12 +38,21 @@ func withNewModule(t *testing.T, options ...fx.Option) {
 		ledgertesting.StorageModule(),
 		logging.LogrusModule(),
 		fx.NopLogger,
+		fx.Invoke(func(lc fx.Lifecycle, h *API) {
+			lc.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					fn(h)
+					return nil
+				},
+			})
+		}),
 	}, options...)
 	options = append(options, fx.Invoke(func() {
 		close(ch)
 	}))
 
 	app := fx.New(options...)
+	assert.NoError(t, app.Start(context.Background()))
 	select {
 	case <-ch:
 	default:
@@ -51,6 +62,13 @@ func withNewModule(t *testing.T, options ...fx.Option) {
 
 func TestAdditionalGlobalMiddleware(t *testing.T) {
 	withNewModule(t,
+		func(api *API) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/_info", nil)
+
+			api.ServeHTTP(rec, req)
+			assert.Equal(t, 418, rec.Code)
+		},
 		routes.ProvideMiddlewares(func() []gin.HandlerFunc {
 			return []gin.HandlerFunc{
 				func(context *gin.Context) {
@@ -58,31 +76,24 @@ func TestAdditionalGlobalMiddleware(t *testing.T) {
 				},
 			}
 		}),
-		fx.Invoke(func(api *API) {
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/_info", nil)
-
-			api.ServeHTTP(rec, req)
-			assert.Equal(t, 418, rec.Code)
-		}),
 	)
 }
 
 func TestAdditionalPerLedgerMiddleware(t *testing.T) {
 	withNewModule(t,
+		func(api *API) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/XXX/transactions", nil)
+
+			api.ServeHTTP(rec, req)
+			assert.Equal(t, 418, rec.Code)
+		},
 		routes.ProvidePerLedgerMiddleware(func() []gin.HandlerFunc {
 			return []gin.HandlerFunc{
 				func(context *gin.Context) {
 					context.AbortWithError(418, errors.New(""))
 				},
 			}
-		}),
-		fx.Invoke(func(api *API) {
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/XXX/transactions", nil)
-
-			api.ServeHTTP(rec, req)
-			assert.Equal(t, 418, rec.Code)
 		}),
 	)
 }
@@ -223,13 +234,14 @@ func TestCommitTransaction(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			withNewModule(t, fx.Invoke(func(api *API) {
+			withNewModule(t, func(api *API) {
+				id := uuid.New()
 				doRequest := func(tx core.TransactionData) *httptest.ResponseRecorder {
 					data, err := json.Marshal(tx)
 					assert.NoError(t, err)
 
 					rec := httptest.NewRecorder()
-					req := httptest.NewRequest(http.MethodPost, "/quickstart/transactions", bytes.NewBuffer(data))
+					req := httptest.NewRequest(http.MethodPost, "/"+id+"/transactions", bytes.NewBuffer(data))
 					req.Header.Set("Content-Type", "application/json")
 
 					api.ServeHTTP(rec, req)
@@ -241,7 +253,7 @@ func TestCommitTransaction(t *testing.T) {
 				}
 				rsp := doRequest(tc.transactions[len(tc.transactions)-1])
 				assert.Equal(t, tc.expectedStatusCode, rsp.Result().StatusCode)
-			}))
+			})
 
 		})
 	}

@@ -32,25 +32,25 @@ func init() {
 
 type ConnStringResolver func(name string) string
 
-// openCloseDBDriver is a driver which connect on the database each time the NewStore() method is called.
+// OpenCloseDBDriver is a driver which connect on the database each time the NewStore() method is called.
 // Therefore, the provided store is configured to close the *sql.DB instance when the Close() method of the store is called.
 // It is suitable for databases engines like SQLite
-type openCloseDBDriver struct {
+type OpenCloseDBDriver struct {
 	name       string
 	connString ConnStringResolver
 	flavor     Flavor
 	logger     logging.Logger
 }
 
-func (d *openCloseDBDriver) Name() string {
+func (d *OpenCloseDBDriver) Name() string {
 	return d.name
 }
 
-func (d *openCloseDBDriver) Initialize(ctx context.Context) error {
+func (d *OpenCloseDBDriver) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (d *openCloseDBDriver) NewStore(name string) (storage.Store, error) {
+func (d *OpenCloseDBDriver) NewStore(name string) (storage.Store, error) {
 	cfg, ok := sqlDrivers[d.flavor]
 	if !ok {
 		return nil, fmt.Errorf("unsupported flavor %s", d.flavor)
@@ -64,12 +64,12 @@ func (d *openCloseDBDriver) NewStore(name string) (storage.Store, error) {
 	})
 }
 
-func (d *openCloseDBDriver) Close(ctx context.Context) error {
+func (d *OpenCloseDBDriver) Close(ctx context.Context) error {
 	return nil
 }
 
-func NewOpenCloseDBDriver(logger logging.Logger, name string, flavor Flavor, connString ConnStringResolver) *openCloseDBDriver {
-	return &openCloseDBDriver{
+func NewOpenCloseDBDriver(logger logging.Logger, name string, flavor Flavor, connString ConnStringResolver) *OpenCloseDBDriver {
+	return &OpenCloseDBDriver{
 		flavor:     flavor,
 		connString: connString,
 		name:       name,
@@ -77,10 +77,10 @@ func NewOpenCloseDBDriver(logger logging.Logger, name string, flavor Flavor, con
 	}
 }
 
-// cachedDBDriver is a driver which connect on a database and keep the connection open until closed
+// CachedDBDriver is a driver which connect on a database and keep the connection open until closed
 // it suitable for databases engines like PostgreSQL or MySQL
 // Therefore, the NewStore() method return stores backed with the same underlying *sql.DB instance.
-type cachedDBDriver struct {
+type CachedDBDriver struct {
 	name   string
 	where  string
 	db     *sql.DB
@@ -88,11 +88,11 @@ type cachedDBDriver struct {
 	logger logging.Logger
 }
 
-func (s *cachedDBDriver) Name() string {
+func (s *CachedDBDriver) Name() string {
 	return s.name
 }
 
-func (s *cachedDBDriver) Initialize(ctx context.Context) error {
+func (s *CachedDBDriver) Initialize(ctx context.Context) error {
 
 	if s.db != nil {
 		return errors.New("database already initialized")
@@ -111,13 +111,13 @@ func (s *cachedDBDriver) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *cachedDBDriver) NewStore(name string) (storage.Store, error) {
+func (s *CachedDBDriver) NewStore(name string) (storage.Store, error) {
 	return NewStore(name, sqlbuilder.Flavor(s.flavor), s.db, s.logger, func(ctx context.Context) error {
 		return nil
 	})
 }
 
-func (d *cachedDBDriver) Close(ctx context.Context) error {
+func (d *CachedDBDriver) Close(ctx context.Context) error {
 	if d.db == nil {
 		return nil
 	}
@@ -126,17 +126,17 @@ func (d *cachedDBDriver) Close(ctx context.Context) error {
 	return err
 }
 
-const SQLiteMemoryConnString = "file::memory:?cache=shared"
+const SQLiteMemoryConnString = "file::memory:?cache=shared&_recursive_triggers=1"
 
 func SQLiteFileConnString(path string) string {
 	return fmt.Sprintf(
-		"file:%s?_journal=WAL",
+		"file:%s?_journal=WAL&_recursive_triggers=1",
 		path,
 	)
 }
 
-func NewCachedDBDriver(logger logging.Logger, name string, flavor Flavor, where string) *cachedDBDriver {
-	return &cachedDBDriver{
+func NewCachedDBDriver(logger logging.Logger, name string, flavor Flavor, where string) *CachedDBDriver {
+	return &CachedDBDriver{
 		where:  where,
 		name:   name,
 		flavor: flavor,
@@ -144,6 +144,6 @@ func NewCachedDBDriver(logger logging.Logger, name string, flavor Flavor, where 
 	}
 }
 
-func NewInMemorySQLiteDriver(logger logging.Logger) *cachedDBDriver {
+func NewInMemorySQLiteDriver(logger logging.Logger) *CachedDBDriver {
 	return NewCachedDBDriver(logger, "sqlite", SQLite, SQLiteMemoryConnString)
 }

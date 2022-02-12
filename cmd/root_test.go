@@ -3,7 +3,9 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"github.com/numary/ledger/pkg/ledgertesting"
+	"github.com/numary/ledger/internal/pgtesting"
+	"github.com/pborman/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"os"
@@ -13,7 +15,11 @@ import (
 
 func TestServer(t *testing.T) {
 
-	pgServer, err := ledgertesting.PostgresServer()
+	if testing.Verbose() {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
+
+	pgServer, err := pgtesting.PostgresServer()
 	assert.NoError(t, err)
 	defer pgServer.Close()
 
@@ -103,7 +109,7 @@ func TestServer(t *testing.T) {
 				break
 			}
 
-			res, err := http.DefaultClient.Post("http://localhost:3068/testing/transactions", "application/json", bytes.NewBufferString(`{
+			res, err := http.DefaultClient.Post("http://localhost:3068/"+uuid.New()+"/transactions", "application/json", bytes.NewBufferString(`{
 				"postings": [{
 					"source": "world",
 					"destination": "central_bank",

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/numary/ledger/internal/pgtesting"
 	"github.com/numary/ledger/pkg/core"
 	"github.com/numary/ledger/pkg/ledger/query"
 	"github.com/numary/ledger/pkg/ledgertesting"
@@ -25,18 +27,12 @@ func TestStore(t *testing.T) {
 		logrus.StandardLogger().Level = logrus.DebugLevel
 	}
 
-	type testCase struct {
-		name       string
-		onlyDriver string
-		fn         func(t *testing.T, store *sqlstorage.Store)
+	type testingFunction struct {
+		name string
+		fn   func(t *testing.T, store *sqlstorage.Store)
 	}
 
-	for _, tf := range []testCase{
-		{
-			name:       "TooManyClient",
-			fn:         testTooManyClient,
-			onlyDriver: "pgx",
-		},
+	for _, tf := range []testingFunction{
 		{
 			name: "SaveTransactions",
 			fn:   testSaveTransaction,
@@ -46,16 +42,8 @@ func TestStore(t *testing.T) {
 			fn:   testDuplicatedTransaction,
 		},
 		{
-			name: "SaveMeta",
-			fn:   testSaveMeta,
-		},
-		{
-			name: "LastTransaction",
-			fn:   testLastTransaction,
-		},
-		{
-			name: "LastMetaID",
-			fn:   testLastMetaID,
+			name: "LastLog",
+			fn:   testLastLog,
 		},
 		{
 			name: "CountAccounts",
@@ -70,10 +58,6 @@ func TestStore(t *testing.T) {
 			fn:   testAggregateVolumes,
 		},
 		{
-			name: "CountMeta",
-			fn:   testCountMeta,
-		},
-		{
 			name: "FindAccounts",
 			fn:   testFindAccounts,
 		},
@@ -86,10 +70,6 @@ func TestStore(t *testing.T) {
 			fn:   testFindTransactions,
 		},
 		{
-			name: "GetMeta",
-			fn:   testGetMeta,
-		},
-		{
 			name: "GetTransaction",
 			fn:   testGetTransaction,
 		},
@@ -98,9 +78,6 @@ func TestStore(t *testing.T) {
 			fn:   testMapping,
 		},
 	} {
-		if tf.onlyDriver != "" && tf.onlyDriver != ledgertesting.StorageDriverName() {
-			continue
-		}
 		t.Run(fmt.Sprintf("%s/%s", ledgertesting.StorageDriverName(), tf.name), func(t *testing.T) {
 
 			done := make(chan struct{})
@@ -139,46 +116,43 @@ func TestStore(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 func testSaveTransaction(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
+	_, err := store.AppendLog(context.Background(), core.NewTransactionLog(nil, core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
 			},
-			Timestamp: time.Now().Format(time.RFC3339),
 		},
-	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+		Timestamp: time.Now().Round(time.Second),
+	}))
 	assert.NoError(t, err)
 }
 
 func testDuplicatedTransaction(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{},
-				},
-				Reference: "foo",
+	tx := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{},
 			},
+			Reference: "foo",
 		},
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	log := core.NewTransactionLog(nil, tx)
+	_, err := store.AppendLog(context.Background(), log)
 	assert.NoError(t, err)
 
-	txs[0].ID = 2
-	ret, err := store.SaveTransactions(context.Background(), txs)
+	tx.ID = uuid.New()
+	ret, err := store.AppendLog(context.Background(), core.NewTransactionLog(&log, tx))
 	assert.Error(t, err)
 	assert.Equal(t, storage.ErrAborted, err)
 	assert.Len(t, ret, 1)
@@ -186,94 +160,22 @@ func testDuplicatedTransaction(t *testing.T, store *sqlstorage.Store) {
 	assert.Equal(t, storage.ConstraintFailed, ret[0].(*storage.Error).Code)
 }
 
-func testSaveMeta(t *testing.T, store *sqlstorage.Store) {
-	err := store.SaveMeta(context.Background(), 1, time.Now().Format(time.RFC3339),
-		"transaction", "1", "firstname", "\"YYY\"")
-	assert.NoError(t, err)
-}
-
-func testGetMeta(t *testing.T, store *sqlstorage.Store) {
-	var (
-		firstname = "\"John\""
-		lastname  = "\"Doe\""
-	)
-	err := store.SaveMeta(context.Background(), 1, time.Now().Format(time.RFC3339), "transaction", "1", "firstname", firstname)
-	assert.NoError(t, err)
-
-	err = store.SaveMeta(context.Background(), 2, time.Now().Format(time.RFC3339), "transaction", "1", "lastname", lastname)
-	assert.NoError(t, err)
-
-	meta, err := store.GetMeta(context.TODO(), "transaction", "1")
-	assert.NoError(t, err)
-
-	assert.Equal(t, core.Metadata{
-		"firstname": json.RawMessage(firstname),
-		"lastname":  json.RawMessage(lastname),
-	}, meta)
-}
-
-func testLastTransaction(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 0,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
-				},
-			},
-			Timestamp: time.Now().Format(time.RFC3339),
-		},
-	}
-	_, err := store.SaveTransactions(context.Background(), txs)
-	assert.NoError(t, err)
-
-	lastTx, err := store.LastTransaction(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, lastTx)
-	assert.Equal(t, core.Transaction{
-		TransactionData: core.TransactionData{
-			Postings: txs[0].Postings,
-			Metadata: map[string]json.RawMessage{},
-		},
-		ID:        txs[0].ID,
-		Timestamp: txs[0].Timestamp,
-	}, *lastTx)
-
-}
-
-func testLastMetaID(t *testing.T, store *sqlstorage.Store) {
-	err := store.SaveMeta(context.Background(), 0, time.Now().Format(time.RFC3339),
-		"transaction", "1", "firstname", "\"YYY\"")
-	assert.NoError(t, err)
-
-	lastMetaId, err := store.LastMetaID(context.Background())
-	assert.NoError(t, err)
-	assert.EqualValues(t, 0, lastMetaId)
-}
-
 func testCountAccounts(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
+	tx := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
 			},
-			Timestamp: time.Now().Format(time.RFC3339),
 		},
+		Timestamp: time.Now().Round(time.Second),
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	_, err := store.AppendLog(context.Background(), core.NewTransactionLog(nil, tx))
 	assert.NoError(t, err)
 
 	countAccounts, err := store.CountAccounts(context.Background())
@@ -282,23 +184,21 @@ func testCountAccounts(t *testing.T, store *sqlstorage.Store) {
 }
 
 func testAggregateBalances(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
+	tx := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
 			},
-			Timestamp: time.Now().Format(time.RFC3339),
 		},
+		Timestamp: time.Now().Round(time.Second),
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	_, err := store.AppendLog(context.Background(), core.NewTransactionLog(nil, tx))
 	assert.NoError(t, err)
 
 	balances, err := store.AggregateBalances(context.Background(), "central_bank")
@@ -308,50 +208,47 @@ func testAggregateBalances(t *testing.T, store *sqlstorage.Store) {
 }
 
 func testAggregateVolumes(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
+	tx := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
 			},
-			Timestamp: time.Now().Format(time.RFC3339),
 		},
+		Timestamp: time.Now().Round(time.Second),
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	_, err := store.AppendLog(context.Background(), core.NewTransactionLog(nil, tx))
 	assert.NoError(t, err)
 
 	volumes, err := store.AggregateVolumes(context.Background(), "central_bank")
 	assert.NoError(t, err)
 	assert.Len(t, volumes, 1)
-	assert.Len(t, volumes["USD"], 1)
+	assert.Len(t, volumes["USD"], 2)
 	assert.EqualValues(t, 100, volumes["USD"]["input"])
+	assert.EqualValues(t, 0, volumes["USD"]["output"])
 }
 
 func testFindAccounts(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
+	tx := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
 			},
-			Timestamp: time.Now().Format(time.RFC3339),
 		},
+		Timestamp: time.Now().Round(time.Second),
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	_, err := store.AppendLog(context.Background(), core.NewTransactionLog(nil, tx))
 	assert.NoError(t, err)
 
 	accounts, err := store.FindAccounts(context.Background(), query.Query{
@@ -372,59 +269,25 @@ func testFindAccounts(t *testing.T, store *sqlstorage.Store) {
 	assert.Equal(t, 1, accounts.PageSize)
 }
 
-func testCountMeta(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
-				},
-				Metadata: map[string]json.RawMessage{
-					"lastname": json.RawMessage(`"XXX"`),
-				},
-			},
-			Timestamp: time.Now().Format(time.RFC3339),
-		},
-	}
-	_, err := store.SaveTransactions(context.Background(), txs)
-	assert.NoError(t, err)
-
-	err = store.SaveMeta(context.Background(), 1, time.Now().Format(time.RFC3339),
-		"transaction", "1", "firstname", "\"YYY\"")
-	assert.NoError(t, err)
-
-	countMeta, err := store.CountMeta(context.Background())
-	assert.NoError(t, err)
-	assert.EqualValues(t, 2, countMeta)
-}
-
 func testCountTransactions(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
-				},
-				Metadata: map[string]json.RawMessage{
-					"lastname": json.RawMessage(`"XXX"`),
+	tx := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
 			},
-			Timestamp: time.Now().Format(time.RFC3339),
+			Metadata: map[string]json.RawMessage{
+				"lastname": json.RawMessage(`"XXX"`),
+			},
 		},
+		Timestamp: time.Now().Round(time.Second),
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	_, err := store.AppendLog(context.Background(), core.NewTransactionLog(nil, tx))
 	assert.NoError(t, err)
 
 	countTransactions, err := store.CountTransactions(context.Background())
@@ -433,39 +296,39 @@ func testCountTransactions(t *testing.T, store *sqlstorage.Store) {
 }
 
 func testFindTransactions(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID: 0,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
+	tx1 := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
-				Reference: "tx1",
 			},
-			Timestamp: time.Now().Format(time.RFC3339),
+			Reference: "tx1",
 		},
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
-				},
-				Reference: "tx2",
-			},
-			Timestamp: time.Now().Format(time.RFC3339),
-		},
+		Timestamp: time.Now().Round(time.Second),
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	tx2 := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
+				},
+			},
+			Reference: "tx2",
+		},
+		Timestamp: time.Now().Round(time.Second),
+	}
+	log1 := core.NewTransactionLog(nil, tx1)
+	log2 := core.NewTransactionLog(&log1, tx2)
+	_, err := store.AppendLog(context.Background(), log1, log2)
 	assert.NoError(t, err)
 
 	cursor, err := store.FindTransactions(context.Background(), query.Query{
@@ -529,46 +392,46 @@ func testMapping(t *testing.T, store *sqlstorage.Store) {
 }
 
 func testGetTransaction(t *testing.T, store *sqlstorage.Store) {
-	txs := []core.Transaction{
-		{
-			ID:        0,
-			Timestamp: time.Now().Format(time.RFC3339),
-			TransactionData: core.TransactionData{
-				Reference: "tx1",
-				Metadata:  core.Metadata{},
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
+	tx1 := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
 				},
 			},
+			Reference: "tx1",
+			Metadata:  map[string]json.RawMessage{},
 		},
-		{
-			ID: 1,
-			TransactionData: core.TransactionData{
-				Postings: []core.Posting{
-					{
-						Source:      "world",
-						Destination: "central_bank",
-						Amount:      100,
-						Asset:       "USD",
-					},
-				},
-				Reference: "tx2",
-				Metadata:  core.Metadata{},
-			},
-			Timestamp: time.Now().Format(time.RFC3339),
-		},
+		Timestamp: time.Now().Round(time.Second),
 	}
-	_, err := store.SaveTransactions(context.Background(), txs)
+	tx2 := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
+				},
+			},
+			Reference: "tx2",
+			Metadata:  map[string]json.RawMessage{},
+		},
+		Timestamp: time.Now().Round(time.Second),
+	}
+	log1 := core.NewTransactionLog(nil, tx1)
+	log2 := core.NewTransactionLog(&log1, tx2)
+	_, err := store.AppendLog(context.Background(), log1, log2)
 	assert.NoError(t, err)
 
-	tx, err := store.GetTransaction(context.Background(), "1")
+	tx, err := store.GetTransaction(context.Background(), tx1.ID)
 	assert.NoError(t, err)
-	assert.Equal(t, txs[1], tx)
+	assert.Equal(t, tx1, tx)
 }
 
 func testTooManyClient(t *testing.T, store *sqlstorage.Store) {
@@ -577,7 +440,7 @@ func testTooManyClient(t *testing.T, store *sqlstorage.Store) {
 		return
 	}
 
-	for i := 0; i < ledgertesting.MaxConnections; i++ {
+	for i := 0; i < pgtesting.MaxConnections; i++ {
 		tx, err := store.DB().BeginTx(context.Background(), nil)
 		assert.NoError(t, err)
 		defer tx.Rollback()
@@ -586,4 +449,30 @@ func testTooManyClient(t *testing.T, store *sqlstorage.Store) {
 	assert.Error(t, err)
 	assert.IsType(t, new(storage.Error), err)
 	assert.Equal(t, storage.TooManyClient, err.(*storage.Error).Code)
+}
+
+func testLastLog(t *testing.T, store *sqlstorage.Store) {
+	tx := core.Transaction{
+		ID: uuid.New(),
+		TransactionData: core.TransactionData{
+			Postings: []core.Posting{
+				{
+					Source:      "world",
+					Destination: "central_bank",
+					Amount:      100,
+					Asset:       "USD",
+				},
+			},
+		},
+		Timestamp: time.Now().Round(time.Second),
+	}
+	log := core.NewTransactionLog(nil, tx)
+	_, err := store.AppendLog(context.Background(), log)
+	assert.NoError(t, err)
+
+	lastLog, err := store.LastLog(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, lastLog)
+	spew.Dump(err)
+	assert.EqualValues(t, tx, lastLog.Data)
 }

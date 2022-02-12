@@ -12,9 +12,9 @@ type rememberConfigStorage struct {
 	logger logging.Logger
 }
 
-func (s *rememberConfigStorage) SaveTransactions(ctx context.Context, txs []core.Transaction) (map[int]error, error) {
+func (s *rememberConfigStorage) AppendLog(ctx context.Context, log ...core.Log) (map[int]error, error) {
 	defer config.Remember(ctx, s.logger, s.Name())
-	return s.Store.SaveTransactions(ctx, txs)
+	return s.Store.AppendLog(ctx, log...)
 }
 
 func NewRememberConfigStorage(underlying Store, logger logging.Logger) *rememberConfigStorage {

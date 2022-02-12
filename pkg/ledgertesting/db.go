@@ -3,6 +3,7 @@ package ledgertesting
 import (
 	"context"
 	"fmt"
+	"github.com/numary/ledger/internal/pgtesting"
 	"github.com/numary/ledger/pkg/logging"
 	"github.com/numary/ledger/pkg/storage"
 	"github.com/numary/ledger/pkg/storage/sqlstorage"
@@ -35,7 +36,7 @@ func StorageModule() fx.Option {
 					))
 				})
 			case "postgres":
-				pgServer, err := PostgresServer()
+				pgServer, err := pgtesting.PostgresServer()
 				if err != nil {
 					return nil, err
 				}

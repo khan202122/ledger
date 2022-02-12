@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"github.com/numary/ledger/pkg/ledger"
+	"github.com/pborman/uuid"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -53,7 +54,7 @@ send [COIN 100] (
 	for _, c := range cases {
 		internal.RunSubTest(t, c.name, func(h *api.API) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest("POST", "/quickstart/script", internal.Buffer(t, core.Script{
+			req := httptest.NewRequest("POST", "/"+uuid.New()+"/script", internal.Buffer(t, core.Script{
 				Plain: c.script,
 			}))
 			req.Header.Set("Content-Type", "application/json")
