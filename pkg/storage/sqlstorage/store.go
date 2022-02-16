@@ -1,3 +1,6 @@
+//go:build json1
+// +build json1
+
 package sqlstorage
 
 import (
@@ -5,7 +8,6 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"github.com/huandu/go-sqlbuilder"
 	"github.com/numary/ledger/pkg/logging"
 	"github.com/pkg/errors"
 	"path"
