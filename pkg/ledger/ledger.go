@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/numary/go-libs/sharedapi"
+	"github.com/numary/ledger/pkg/api/struct_api"
 	"github.com/numary/ledger/pkg/core"
 	"github.com/numary/ledger/pkg/storage"
 	"github.com/pkg/errors"
@@ -294,6 +295,11 @@ func (l *Ledger) GetAccount(ctx context.Context, address string) (core.Account, 
 	account.Balances = volumes.Balances()
 
 	return account, nil
+}
+
+func (l *Ledger) GetAggregatedBalances(ctx context.Context, params struct_api.GetBalancesStruct) (*core.AggregatedBalances, error) {
+
+	return l.store.GetAggregatedBalances(ctx, params)
 }
 
 func (l *Ledger) SaveMeta(ctx context.Context, targetType string, targetID interface{}, m core.Metadata) error {
