@@ -6,7 +6,6 @@ import (
 
 	"github.com/numary/go-libs/sharedapi"
 	"github.com/numary/go-libs/sharedlogging"
-	"github.com/numary/ledger/pkg/api/struct_api"
 	"github.com/numary/ledger/pkg/core"
 	"github.com/numary/ledger/pkg/opentelemetry"
 	"github.com/numary/ledger/pkg/storage"
@@ -140,9 +139,9 @@ func (o *openTelemetryStorage) GetAccountVolumes(ctx context.Context, s string) 
 	return
 }
 
-func (o *openTelemetryStorage) GetAggregatedBalances(ctx context.Context, params struct_api.GetBalancesStruct) (balances *core.AggregatedBalances, err error) {
+func (o *openTelemetryStorage) GetAggregatedBalances(ctx context.Context, q storage.BalancesQuery) (balances sharedapi.Cursor[core.AggregatedBalances], err error) {
 	handlingErr := o.handle(ctx, "GetAggregatedBalances", func(ctx context.Context) error {
-		balances, err = o.underlying.GetAggregatedBalances(ctx, params)
+		balances, err = o.underlying.GetAggregatedBalances(ctx, q)
 		return err
 	})
 	if handlingErr != nil {

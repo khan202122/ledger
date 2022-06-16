@@ -28,6 +28,8 @@ func (v Volume) Balance() int64 {
 type Balances map[string]int64
 type Volumes map[string]Volume
 
+type AccountsBalances map[string]map[string]int64
+
 func (v Volumes) Balances() Balances {
 	balances := Balances{}
 	for asset, vv := range v {
@@ -39,8 +41,8 @@ func (v Volumes) Balances() Balances {
 type AggregatedVolumes map[string]Volumes
 
 type AggregatedBalances struct {
-	Aggregated map[string]int64            `json:"aggregated"`
-	Accounts   map[string]map[string]int64 `json:"accounts"`
+	Aggregated Balances         `json:"aggregated"`
+	Accounts   AccountsBalances `json:"accounts"`
 }
 
 // Scan - Implement the database/sql scanner interface
