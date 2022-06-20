@@ -139,13 +139,24 @@ func (o *openTelemetryStorage) GetAccountVolumes(ctx context.Context, s string) 
 	return
 }
 
-func (o *openTelemetryStorage) GetAggregatedBalances(ctx context.Context, q storage.BalancesQuery) (balances sharedapi.Cursor[core.AggregatedBalances], err error) {
-	handlingErr := o.handle(ctx, "GetAggregatedBalances", func(ctx context.Context) error {
-		balances, err = o.underlying.GetAggregatedBalances(ctx, q)
+func (o *openTelemetryStorage) GetBalances(ctx context.Context, q storage.BalancesQuery) (balances sharedapi.Cursor[core.AccountsBalances], err error) {
+	handlingErr := o.handle(ctx, "GetBalances", func(ctx context.Context) error {
+		balances, err = o.underlying.GetBalances(ctx, q)
 		return err
 	})
 	if handlingErr != nil {
-		sharedlogging.Errorf("opentelemetry GetAggregatedBalances: %s", handlingErr)
+		sharedlogging.Errorf("opentelemetry GetBalances: %s", handlingErr)
+	}
+	return
+}
+
+func (o *openTelemetryStorage) GetBalancesAggregated(ctx context.Context, q storage.BalancesQuery) (balances core.Balances, err error) {
+	handlingErr := o.handle(ctx, "GetBalancesAggregated", func(ctx context.Context) error {
+		balances, err = o.underlying.GetBalancesAggregated(ctx, q)
+		return err
+	})
+	if handlingErr != nil {
+		sharedlogging.Errorf("opentelemetry GetBalancesAggregated: %s", handlingErr)
 	}
 	return
 }
